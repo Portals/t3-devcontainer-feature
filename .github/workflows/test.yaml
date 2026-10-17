@@ -1,0 +1,101 @@
+name: Test feature
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Test suite (all suites always run before release)
+        type: choice
+        default: all
+        options: [all, core, contracts, migration, uid, node-java, docker, prebuilt]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Check host helpers and all shell programs
+        run: |
+          node --test test/host.test.mjs
+          for script in scripts/*.mjs test/*.mjs; do node --check "$script"; done
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+          mapfile -d '' scripts < <(find src test -type f -print0 | while IFS= read -r -d '' file; do if head -n 1 "$file" | grep -q '^#!.*bash'; then printf '%s\0' "$file"; fi; done)
+          shellcheck --severity=error -x "${scripts[@]}" ./*.sh
+      - name: Validate feature metadata
+        uses: devcontainers/action@bef2cf2d1a019b00b45e184f83035e01bd1972f3 # v1
+        with:
+          validate-only: "true"
+          base-path-to-features: ./src
+          devcontainer-cli-version: "0.89.0"
+
+  container:
+    if: inputs.suite == '' || inputs.suite == 'all' || inputs.suite == 'core'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        image: ['mcr.microsoft.com/devcontainers/base:ubuntu-24.04', 'debian:12']
+        channel: [stable, nightly]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Dev Container CLI
+        run: npm install --global @devcontainers/cli@0.89.0
+      - name: Build, verify runtime and sandboxed browser, then clean owned resources
+        env:
+          T3_TEST_IMAGE: ${{ matrix.image }}
+          T3_TEST_CHANNEL: ${{ matrix.channel }}
+          T3_TEST_EVIDENCE: ${{ runner.temp }}/t3-evidence
+        run: node test/integration.mjs core
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: core-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/t3-evidence
+
+  contracts:
+    if: inputs.suite != 'core'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        mode: ${{ fromJSON(inputs.suite != '' && inputs.suite != 'all' && format('["{0}"]', inputs.suite) || '["contracts","migration","uid","node-java","docker","prebuilt"]') }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install Dev Container CLI
+        run: npm install --global @devcontainers/cli@0.89.0
+      - name: Permit browser user namespaces on the disposable privileged Docker runner
+        if: matrix.mode == 'docker'
+        run: |
+          if sysctl kernel.apparmor_restrict_unprivileged_userns >/dev/null 2>&1; then
+            sysctl -n kernel.apparmor_restrict_unprivileged_userns > "$RUNNER_TEMP/t3-apparmor-original"
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Verify composition, persistence and updates with isolated disposable resources
+        env:
+          T3_TEST_EVIDENCE: ${{ runner.temp }}/t3-evidence
+        run: node test/integration.mjs '${{ matrix.mode }}'
+      - name: Restore runner AppArmor namespace policy
+        if: always() && matrix.mode == 'docker'
+        run: |
+          if [[ -f "$RUNNER_TEMP/t3-apparmor-original" ]]; then
+            sudo sysctl -w "kernel.apparmor_restrict_unprivileged_userns=$(cat "$RUNNER_TEMP/t3-apparmor-original")"
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: always()
+        with:
+          name: contract-${{ matrix.mode }}
+          path: ${{ runner.temp }}/t3-evidence

@@ -1,0 +1,6 @@
+{
+  "mounts": [
+    {"source": "t3-code-${devcontainerId}", "target": "/var/lib/t3-code", "type": "volume"},
+    {"source": "t3-code-home-${devcontainerId}", "target": "/home", "type": "volume"}
+  ]
+}

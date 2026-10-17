@@ -1,0 +1,16 @@
+name: Remove obsolete packages
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  remove:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: node scripts/remove-obsolete-packages.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

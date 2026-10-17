@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+state=${T3CODE_HOME:-/var/lib/t3-code}
+if [[ -e "$state/runtime/current" || -L "$state/runtime/current" ]]; then
+    [[ -x "$state/runtime/current/t3" ]] || { echo 'The selected T3 runtime is missing or not executable.' >&2; exit 1; }
+    exec "$state/runtime/current/t3" "$@"
+fi
+fallback=$(cat /usr/local/share/t3-code/fallback)
+exec "$fallback" "$@"

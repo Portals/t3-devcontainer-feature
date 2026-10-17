@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source /etc/t3-code.env
+[[ "$(id -un)" == "$T3_DEV_USER" ]] || { echo "Run as $T3_DEV_USER" >&2; exit 1; }
+state=${T3CODE_HOME:-/var/lib/t3-code}
+manifest=/usr/local/share/t3-code/versions.json
+if [[ -r "$state/runtime/current/.resolved-version.json" ]]; then manifest="$state/runtime/current/.resolved-version.json"; fi
+version=$(jq -er '.browser' "$manifest")
+case "$(uname -m)" in
+    x86_64) platform=linux64 ;;
+    aarch64|arm64) platform=linux-arm64 ;;
+    *) exit 1 ;;
+esac
+browser="$state/tools/chrome-headless-shell/$platform/$version/chrome-headless-shell"
+[[ -x "$browser" ]] || { echo 'Prepared browser is missing.' >&2; exit 1; }
+fc-match sans-serif
+temporary=$(mktemp -d)
+trap 'rm -rf "$temporary"' EXIT
+timeout 30 "$browser" --headless --disable-gpu --disable-dev-shm-usage --no-first-run \
+    --user-data-dir="$temporary/profile" --dump-dom 'data:text/html,<p>T3 browser ready</p>' \
+    >"$temporary/dom" 2>"$temporary/stderr" || {
+    cat "$temporary/stderr" >&2
+    echo 'Browser sandbox probe failed; inspect the container user namespace policy.' >&2
+    exit 1
+}
+grep -F 'T3 browser ready' "$temporary/dom" >/dev/null
+echo 'Sandboxed browser rendered successfully.'

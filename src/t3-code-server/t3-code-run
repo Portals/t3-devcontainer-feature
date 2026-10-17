@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /etc/t3-code.env
+[[ "$(id -un)" == "$T3_DEV_USER" ]]
+export T3CODE_HOME="${T3CODE_HOME:-/var/lib/t3-code}"
+umask 077
+mkdir -p "$T3CODE_HOME/run" "$T3CODE_HOME/logs"
+exec 9>"$T3CODE_HOME/run/server.lock"
+flock -n 9 || exit 0
+
+printf '%s\n' "$$" > "$T3CODE_HOME/run/server.pid"
+child=
+finish() {
+    trap - EXIT TERM INT
+    if [[ -n "$child" ]]; then
+        kill -TERM "$child" 2>/dev/null || true
+        wait "$child" 2>/dev/null || true
+    fi
+    rm -f "$T3CODE_HOME/run/server.pid"
+}
+trap finish EXIT TERM INT
+
+workspace=${T3_WORKSPACE:-$T3_DEFAULT_WORKSPACE}
+if [[ "$workspace" == auto ]]; then
+    workspace=$HOME
+    if [[ -d /workspace ]]; then
+        workspace=/workspace
+    elif [[ -d /workspaces ]]; then
+        mapfile -t candidates < <(find /workspaces -mindepth 1 -maxdepth 1 -type d)
+        if [[ "${#candidates[@]}" == 1 ]]; then
+            workspace=${candidates[0]}
+        fi
+    fi
+fi
+
+[[ -d "$workspace" ]] || { echo "Workspace does not exist: $workspace" >&2; exit 1; }
+cd "$workspace"
+arguments=(start --mode desktop --host 0.0.0.0 --port "$T3_PORT" --base-dir "$T3CODE_HOME" --no-browser)
+if git rev-parse --show-toplevel >/dev/null 2>&1; then
+    arguments+=(--auto-bootstrap-project-from-cwd)
+fi
+t3 "${arguments[@]}" "$workspace" &
+child=$!
+wait "$child"

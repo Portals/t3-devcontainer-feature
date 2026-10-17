@@ -1,0 +1,4 @@
+interface:
+  display_name: "Worktree cleanup"
+  short_description: "Clean up worktree resources while preserving work"
+  default_prompt: "Use $worktree-cleanup to clean up this worktree and its disposable resources while preserving unfinished work."

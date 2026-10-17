@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /etc/t3-code.env
+state="${T3CODE_HOME:-/var/lib/t3-code}"
+if [[ "$(id -u)" == 0 ]]; then
+    [[ "$(id -u -- "$T3_DEV_USER")" != 0 ]] || { echo 'The configured development user must not have UID 0.' >&2; exit 1; }
+    exec runuser -u "$T3_DEV_USER" -- env HOME="$T3_DEV_HOME" PATH="$PATH" T3CODE_HOME="$state" /usr/local/bin/t3-code-status "$@"
+fi
+source /usr/local/share/t3-code/server-state.sh
+if [[ "${1:-}" == --json ]]; then
+    ready=false
+    if t3_server_ready; then ready=true; fi
+    selected=$(readlink -f "$state/runtime/current" 2>/dev/null || true)
+    if [[ ! -d "$selected" ]]; then selected=$(dirname "$(cat /usr/local/share/t3-code/fallback)"); fi
+    receipt=null
+    last=null
+    if [[ -r "$selected/.install-receipt.json" ]]; then receipt=$(jq -c . "$selected/.install-receipt.json"); fi
+    if [[ -r "$state/runtime/last-update.json" ]]; then last=$(jq -c . "$state/runtime/last-update.json"); fi
+    jq -n --argjson ready "$ready" --argjson receipt "$receipt" --argjson last "$last" \
+        --arg user "$(id -un)" --arg state "$state" --arg pin "${T3_VERSION:-latest}" \
+        '{ready:$ready,user:$user,state:$state,configuredVersion:$pin,receipt:$receipt,lastUpdate:$last}'
+    [[ "$ready" == true ]]
+    exit
+fi
+printf 'User: %s\nWorkspace: %s\nState: %s\nLog: %s/logs/server.log\n' "$(id -un)" "${T3_WORKSPACE:-$T3_DEFAULT_WORKSPACE}" "$state" "$state"
+if pid=$(t3_supervisor_pid); then
+    ps -o pid=,user=,etime=,args= -p "$pid"
+fi
+t3_server_ready || { echo 'Managed T3 server is not ready.' >&2; exit 1; }
+echo 'HTTP 200 (owned T3 server)'
+timeout 30 t3 --version
+if [[ -r "$state/runtime/last-update.json" ]]; then
+    jq -r '"Last update: \(.status) (\(.phase)) at \(.finishedAt)"' "$state/runtime/last-update.json"
+fi

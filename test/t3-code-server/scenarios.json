@@ -1,0 +1,20 @@
+{
+  "stable": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+    "remoteUser": "vscode",
+    "updateRemoteUserUID": false,
+    "features": {
+      "t3-code-server": { "channel": "stable", "autoUpdate": false }
+    },
+    "runArgs": ["--shm-size=1g"]
+  },
+  "nightly": {
+    "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+    "remoteUser": "vscode",
+    "updateRemoteUserUID": false,
+    "features": {
+      "t3-code-server": { "channel": "nightly", "autoUpdate": false }
+    },
+    "runArgs": ["--shm-size=1g"]
+  }
+}

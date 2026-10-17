@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source /etc/t3-code.env
+[[ "$(id -un)" == "$T3_DEV_USER" ]] || { echo "Run as $T3_DEV_USER" >&2; exit 1; }
+export T3CODE_HOME="${T3CODE_HOME:-/var/lib/t3-code}"
+source /usr/local/share/t3-code/server-state.sh
+umask 077
+mkdir -p "$T3CODE_HOME/logs" "$T3CODE_HOME/run"
+
+if t3_server_ready; then
+    echo "T3 endpoint is already available on port $T3_PORT"
+    exit 0
+fi
+
+if [[ -n "$(t3_listener_inodes)" ]]; then
+    echo "Port $T3_PORT is occupied without a healthy managed T3 server." >&2
+    exit 1
+fi
+
+nohup setsid t3-code-run >>"$T3CODE_HOME/logs/server.log" 2>&1 </dev/null &
+
+for _attempt in {1..60}; do
+    if t3_server_ready; then
+        echo "T3 ready on container port $T3_PORT; logs: $T3CODE_HOME/logs/server.log"
+        exit 0
+    fi
+    sleep 1
+done
+
+echo "T3 failed to become ready; inspect $T3CODE_HOME/logs/server.log" >&2
+exit 1

@@ -1,0 +1,87 @@
+{
+  "id": "t3-code-server",
+  "version": "1.0.0",
+  "name": "T3 Code Server",
+  "description": "Project-independent T3 server with a prepared sandboxed browser and persistent worktrees.",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "Exact T3 runtime version, or latest to follow channel. Exact versions remain pinned at startup."
+    },
+    "channel": {
+      "type": "string",
+      "enum": [
+        "stable",
+        "nightly"
+      ],
+      "default": "stable",
+      "description": "T3 release channel, resolved from published releases."
+    },
+    "autoUpdate": {
+      "type": "boolean",
+      "default": true,
+      "description": "Check for a newer runtime on container startup. Updates restart only T3 and persist without rebuilding the container."
+    },
+    "user": {
+      "type": "string",
+      "default": "automatic",
+      "description": "Existing non-root user; automatic uses the devcontainer remoteUser."
+    },
+    "workspace": {
+      "type": "string",
+      "default": "auto",
+      "description": "Repository path, or auto for /workspace or a single /workspaces checkout."
+    },
+    "port": {
+      "type": "string",
+      "default": "3773",
+      "description": "Container server port."
+    },
+    "autoStart": {
+      "type": "boolean",
+      "default": true,
+      "description": "Start the server on every container start."
+    },
+    "startupUpdateTimeout": {
+      "type": "string",
+      "default": "120",
+      "description": "Maximum seconds for startup update preparation; activation and rollback finish separately."
+    },
+    "installerSha256": {
+      "type": "string",
+      "default": "",
+      "description": "Optional SHA-256 required when downloading the official installer; empty follows the current official installer."
+    },
+    "repairHomeOwnership": {
+      "type": "boolean",
+      "default": false,
+      "description": "Explicitly repair UID/GID changes within the selected user home, for an opted-in persistent home mount."
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ],
+  "init": true,
+  "securityOpt": [
+    "seccomp=unconfined"
+  ],
+  "mounts": [
+    {
+      "source": "t3-code-${devcontainerId}",
+      "target": "/var/lib/t3-code",
+      "type": "volume"
+    }
+  ],
+  "containerEnv": {
+    "T3CODE_HOME": "/var/lib/t3-code"
+  },
+  "entrypoint": "/usr/local/share/t3-code/container-entrypoint.sh",
+  "documentationURL": "https://github.com/Portals/t3-devcontainer-feature/tree/main/src/t3-code-server",
+  "keywords": [
+    "t3",
+    "development",
+    "worktrees",
+    "browser"
+  ]
+}

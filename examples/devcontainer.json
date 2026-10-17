@@ -1,0 +1,28 @@
+{
+  "name": "Development",
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "workspaceFolder": "/workspace",
+  "remoteUser": "vscode",
+  "updateRemoteUserUID": true,
+  "features": {
+    "./features/t3-code-server": {
+      "channel": "stable",
+      "autoUpdate": true,
+      "version": "latest",
+      "repairHomeOwnership": true
+    }
+  },
+  "runArgs": [
+    "--publish",
+    "127.0.0.1::3773",
+    "--shm-size=1g"
+  ],
+  "mounts": [
+    {
+      "source": "t3-code-user-home-${devcontainerId}",
+      "target": "/home/vscode",
+      "type": "volume"
+    }
+  ]
+}

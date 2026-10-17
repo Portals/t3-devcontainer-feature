@@ -1,0 +1,71 @@
+name: Release features
+
+on:
+  workflow_dispatch:
+    inputs:
+      replaceOriginalRelease:
+        description: Replace the approved original t3-code-server 1.0.0
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: feature-release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    if: github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/test.yaml
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Remove the approved original 1.0.0 after all tests pass
+        if: inputs.replaceOriginalRelease
+        run: node scripts/replace-release.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish feature
+        uses: devcontainers/action@bef2cf2d1a019b00b45e184f83035e01bd1972f3 # v1
+        with:
+          publish-features: "true"
+          base-path-to-features: ./src
+          features-namespace: portals/t3-devcontainer-feature
+          devcontainer-cli-version: "0.89.0"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Remove obsolete packages and generated collection index
+        run: node scripts/remove-obsolete-packages.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify published version aliases
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version=$(jq -r .version src/t3-code-server/devcontainer-feature.json)
+          feature=ghcr.io/portals/t3-devcontainer-feature/t3-code-server
+          for tag in "$version" "${version%.*}" "${version%%.*}" latest; do
+            devcontainer features info manifest "$feature:$tag" --output-format json
+          done
+          printf 'Published `%s:%s` and its version aliases.\n' "$feature" "$version" >> "$GITHUB_STEP_SUMMARY"
+
+  verify:
+    needs: publish
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/verify-published.yaml

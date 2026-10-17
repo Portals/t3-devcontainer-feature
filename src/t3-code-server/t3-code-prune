@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source /etc/t3-code.env
+[[ "$(id -un)" == "$T3_DEV_USER" ]] || { echo "Run as $T3_DEV_USER" >&2; exit 1; }
+apply=false
+keep=3
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --apply) apply=true; shift ;;
+        --keep) keep=${2:?--keep needs a number}; shift 2 ;;
+        --json|--dry-run) shift ;;
+        *) echo 'Usage: t3-code-prune [--keep N] [--apply] [--json]' >&2; exit 1 ;;
+    esac
+done
+[[ "$keep" =~ ^[0-9]{1,4}$ ]] || { echo 'keep must be 0–9999.' >&2; exit 1; }
+state=$(readlink -f "${T3CODE_HOME:-/var/lib/t3-code}")
+runtime="$state/runtime"
+umask 077
+mkdir -p "$runtime"
+exec 7>"$runtime/update.lock"
+flock -n 7 || { echo 'Another update or cleanup is running.' >&2; exit 1; }
+scratch=$(mktemp -d "$runtime/.prune-XXXXXX")
+trap 'rm -rf "$scratch"' EXIT
+touch "$scratch/inventory" "$scratch/live"
+
+scan() {
+    local kind=$1 parent=$2 receipt=$3 directory metadata owned identity bytes version manifest
+    for directory in "$parent"/*; do
+        [[ -d "$directory" && ! -L "$directory" ]] || continue
+        metadata=null
+        owned=false
+        if [[ -f "$directory/$receipt" && ! -L "$directory/$receipt" ]]; then
+            metadata=$(jq -c 'if type=="object" then . else null end' "$directory/$receipt" 2>/dev/null || printf null)
+            if [[ "$(stat -c %u "$directory")" == "$(id -u)" ]] &&
+                jq -e --arg kind "$kind" '.schema==1 and .kind==("t3-code-"+$kind) and (.createdAt | type=="string")' <<<"$metadata" >/dev/null; then
+                owned=true
+            fi
+        fi
+        version=${directory##*/}
+        if [[ "$kind" != backup ]]; then
+            if [[ "$(jq -r '.version // ""' <<<"$metadata")" != "$version" ]]; then owned=false; fi
+        elif ! jq -e '(.status|type=="string") and (.fromVersion|type=="string") and (.toVersion|type=="string")' <<<"$metadata" >/dev/null; then
+            owned=false
+        fi
+        identity=$(stat -c '%d:%i:%u' "$directory")
+        bytes=$(du -sb "$directory" 2>/dev/null | cut -f1 || true)
+        [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
+        manifest=null
+        if [[ -r "$directory/.resolved-version.json" && ! -L "$directory/.resolved-version.json" ]]; then
+            manifest=$(jq -c 'if type=="object" then . else null end' "$directory/.resolved-version.json" 2>/dev/null || printf null)
+        fi
+        jq -cn --arg kind "$kind" --arg path "$directory" --arg identity "$identity" --arg receipt "$receipt" \
+            --argjson owned "$owned" --argjson bytes "$bytes" --argjson metadata "$metadata" --argjson manifest "$manifest" \
+            '{kind:$kind,path:$path,identity:$identity,receipt:$receipt,owned:$owned,bytes:$bytes,metadata:$metadata,manifest:$manifest}' >> "$scratch/inventory"
+    done
+}
+scan backup "$runtime/backups" .backup.json
+scan runtime "$runtime/versions" .install-receipt.json
+for platform in "$state/tools/chrome-headless-shell"/*; do
+    [[ -d "$platform" && ! -L "$platform" ]] || continue
+    scan browser "$platform" .install-receipt.json
+done
+for process in /proc/[0-9]*; do
+    [[ "$(stat -c %u "$process" 2>/dev/null || true)" == "$(id -u)" ]] || continue
+    readlink "$process/exe" >> "$scratch/live" 2>/dev/null || true
+done
+current=$(readlink -f "$runtime/current" 2>/dev/null || true)
+previous=$(readlink -f "$runtime/previous" 2>/dev/null || true)
+fallback_browser=$(jq -r '.browser // ""' /usr/local/share/t3-code/versions.json)
+jq -Rn '[inputs | sub(" \\(deleted\\)$"; "")]' < "$scratch/live" > "$scratch/live.json"
+jq -s --arg current "$current" --arg previous "$previous" --arg fallback "$fallback_browser" \
+    --argjson keep "$((10#$keep))" --argjson apply "$apply" --slurpfile live "$scratch/live.json" '
+    def newest($kind): [.[] | select(.kind==$kind and .owned)] | sort_by(.metadata.createdAt,.path) | reverse | .[:$keep] | map(.path);
+    . as $all |
+    ($all | newest("backup")) as $newbackups |
+    [$all[] | select(.kind=="backup") | select((.owned|not) or .metadata.status!="committed" or (.path as $p | $newbackups|index($p)))] as $backups |
+    (any($backups[]; .owned|not)) as $unknown_backup |
+    [$backups[].metadata | .fromVersion,.toVersion | select(type=="string")] as $backup_versions |
+    ($all | newest("runtime")) as $newruntimes |
+    [$all[] | select(.kind=="runtime") | . as $entry |
+      select((.owned|not) or $unknown_backup or .path==$current or .path==$previous or
+        ($newruntimes|index($entry.path)) or ($backup_versions|index($entry.metadata.version)) or
+        any($live[0][]; startswith($entry.path+"/")))] as $runtimes |
+    (any($runtimes[]; (.manifest.browser|type)!="string")) as $unknown_browser |
+    ([$fallback]+[$runtimes[].manifest.browser | select(type=="string")]) as $browser_versions |
+    ($all | newest("browser")) as $newbrowsers |
+    [$all[] | . as $entry |
+      .reason=(if (.owned|not) then "unattributed; preserved"
+        elif .kind=="backup" then
+          if .metadata.status!="committed" then "recovery data; protected"
+          elif ($newbackups|index($entry.path)) then "retained backup" else "expired committed backup" end
+        elif .kind=="runtime" then
+          if ($runtimes|map(.path)|index($entry.path)) then "active, rollback, live, backup, or retained runtime"
+          else "expired managed runtime" end
+        else
+          if $unknown_browser or ($browser_versions|index($entry.metadata.version)) or ($newbrowsers|index($entry.path)) or
+            any($live[0][]; startswith($entry.path+"/")) then "live, referenced, or retained browser"
+          else "expired managed browser" end end) |
+      .action=(if (.reason|startswith("expired")) then "remove" else "keep" end)] as $entries |
+    {schema:1,mode:(if $apply then "apply" else "dry-run" end),keepNewest:$keep,
+      reclaimableBytes:([$entries[]|select(.action=="remove")|.bytes]|add // 0),entries:$entries}
+' "$scratch/inventory" > "$scratch/plan.json"
+if [[ "$apply" == true ]]; then
+    while IFS=$'\t' read -r directory identity; do
+        [[ -d "$directory" && ! -L "$directory" && "$(readlink -f "$directory")" == "$directory" ]]
+        [[ "$(stat -c '%d:%i:%u' "$directory")" == "$identity" ]]
+        case "$directory" in "$runtime/backups/"*|"$runtime/versions/"*|"$state/tools/chrome-headless-shell/"*) ;; *) exit 1 ;; esac
+        rm -rf -- "$directory"
+    done < <(jq -r '.entries[] | select(.action=="remove") | [.path,.identity] | @tsv' "$scratch/plan.json")
+fi
+cat "$scratch/plan.json"
