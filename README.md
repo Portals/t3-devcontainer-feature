@@ -15,6 +15,8 @@ Add the Feature to an existing devcontainer with a non-root `remoteUser`:
 "runArgs": ["--publish", "127.0.0.1::3773", "--shm-size=1g"]
 ```
 
+T3 product telemetry is disabled by default with `T3CODE_TELEMETRY_ENABLED=false` in the Feature’s `containerEnv`. The examples also set it explicitly. Existing containers must be recreated to receive a changed container environment; `update.sh` alone does not apply it.
+
 [Full configuration](examples/ghcr-devcontainer.json) · [All Feature arguments](src/t3-code-server/README.md)
 
 For a local copy, run `./setup.sh /path/to/project`. Then:

@@ -141,6 +141,8 @@ async function main(){
     assert(status.ready&&status.receipt?.verification.apiMatchesReleaseChecksum,'Missing ready server or verification receipt');
     assert(status.receipt.bootstrap.sha256.length===64,'Missing bootstrap digest');
     exec(p,'t3-code-browser-check');checkpoint('non-root server, sandboxed browser and verification receipt');
+    exec(p,'set -euo pipefail; [[ "${T3CODE_TELEMETRY_ENABLED:-}" == false ]]; supervisor=$(cat "$T3CODE_HOME/run/server.pid"); child=$(pgrep -P "$supervisor"); [[ "$child" =~ ^[0-9]+$ ]]; tr "\\0" "\\n" < "/proc/$child/environ" | grep -Fx "T3CODE_TELEMETRY_ENABLED=false"');
+    checkpoint('feature default disables telemetry in the running T3 server process');
     if(mode==='node-java'){
         exec(p,'[[ "$(id -un)" == builder && "$HOME" == /customHome ]]; node --version | grep "^v20\\."; java --version | grep "^openjdk 25"');
         checkpoint('Node 20 and Java 25 coexist with T3 under a custom user/home');return;

@@ -1,6 +1,6 @@
 {
   "id": "t3-code-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "name": "T3 Code Server",
   "description": "Project-independent T3 server with a prepared sandboxed browser and persistent worktrees.",
   "options": {
@@ -74,7 +74,8 @@
     }
   ],
   "containerEnv": {
-    "T3CODE_HOME": "/var/lib/t3-code"
+    "T3CODE_HOME": "/var/lib/t3-code",
+    "T3CODE_TELEMETRY_ENABLED": "false"
   },
   "entrypoint": "/usr/local/share/t3-code/container-entrypoint.sh",
   "documentationURL": "https://github.com/Portals/t3-devcontainer-feature/tree/main/src/t3-code-server",

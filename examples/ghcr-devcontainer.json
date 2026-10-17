@@ -24,5 +24,8 @@
       "target": "/home/vscode",
       "type": "volume"
     }
-  ]
+  ],
+  "containerEnv": {
+    "T3CODE_TELEMETRY_ENABLED": "false"
+  }
 }

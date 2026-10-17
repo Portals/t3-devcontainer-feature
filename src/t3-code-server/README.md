@@ -40,6 +40,8 @@ Chrome retains its own sandbox. `seccomp=unconfined` permits browser user namesp
 
 When combined with Docker-in-Docker, that other Feature requests privileged mode. On Ubuntu hosts with AppArmor's unprivileged-user-namespace restriction, privileged containers can lose Chrome's usable namespace sandbox. Configure a suitable host AppArmor/user-namespace policy before combining these Features. The CI Docker composition job permits user namespaces on its disposable runner and restores the original policy afterward; the T3 Feature never changes host policy or disables Chrome's sandbox.
 
+T3 product telemetry is disabled by default through `containerEnv.T3CODE_TELEMETRY_ENABLED="false"`. The examples set it explicitly too. Recreate existing containers to apply this environment default; updating the T3 runtime alone does not change their environment.
+
 
 ---
 
